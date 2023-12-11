@@ -6,12 +6,12 @@ import json
 from collections import deque
 
 # Constants
-MAX_ANT_MOVEMENT = 5
+MAX_ANT_MOVEMENT = 1
 MAP_WIDTH = 500
 MAP_HEIGHT = 300
 BASE_DEF = 10
 BASE_ATK = 5
-BASE_INFECTION_RATE = 0.5
+BASE_INFECTION_RATE = 0.1
 BASE_RADIUS = 20
 ANT_GENERATION_INTERVAL = 3  # Interval in seconds
 ANT_MOVEMENT_INTERVAL = 1  # Interval in seconds
@@ -123,29 +123,32 @@ mutex = asyncio.Lock()
 def in_field(pos):
     return 0<= pos.x < MAP_WIDTH and 0<= pos.y < MAP_HEIGHT
 
-async def send_msg(player, _type, msg, **kwargs):
+async def send_message_withheader(writer, message):
+    # Create a fixed-length header indicating the size of the message
+    header = f"{len(message):<10}".encode('utf-8')
+    writer.write(header + message.encode('utf-8'))
+    await writer.drain()
+
+async def send_message(player, _type, msg, **kwargs):
     if player.player_id not in players:
         return
     message_dict={"type":_type, "msg":msg, **kwargs}
     try:
-        # await loop.sock_sendall(player.client_socket, json.dumps(message_dict).encode('utf-8'))
-        player.writer.write(json.dumps(message_dict).encode('utf-8'))
-        await player.writer.drain()
+        await send_message_withheader(player.writer, json.dumps(message_dict))
     except socket.error as e:
         print(f"Error sending {_type} to Player {player.player_id}: {e}")
 
 
 async def send_notification(player, msg, **kwargs):
-    await send_msg(player, _type="notification", msg=msg, **kwargs)
+    await send_message(player, _type="notification", msg=msg, **kwargs)
 
 async def send_warning(player, msg, **kwargs):
-    await send_msg(player, _type="warning", msg=msg, **kwargs)
+    await send_message(player, _type="warning", msg=msg, **kwargs)
 
 
 def is_ant_infected(ant, tribe):
-    # Your logic to check if an ant is infected by a tribe
-    # Replace this with your specific game logic
-    return random.random() < tribe.infection_probability
+    # Check if an ant is infected by a tribe
+    return ant.position.toTuple() in tribe.infection_area and random.random() < tribe.infection_probability
 
 async def update_game_state(player, action):
     async with mutex:
@@ -254,8 +257,7 @@ async def send_game_state(player=None, backup=False):
         json_obj = json.dumps(msg)
 
         try:
-            player_i.writer.write(json_obj.encode('utf-8'))
-            await player_i.writer.drain()
+            await send_message_withheader(player_i.writer, json_obj)
         except socket.error as e:
             print(f"Error sending game state to Player {player.player_id}: {e}")
 
@@ -337,6 +339,7 @@ async def move_ants():
                             player.ant_positions.append(ant.position)
                             player.new_tribes_to_create += 1
                             ants_count-=1
+                            print(f"An ant infected at position ({ant.position.x}, {ant.position.y})")
                             asyncio.create_task(send_notification(player, msg="ant_infected"))
         await send_game_state_all(backup=True)
         #print("move ants done")

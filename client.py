@@ -8,11 +8,22 @@ async def send_message(writer, message):
 
 async def read_server(reader):
     while True:
-        data = await reader.read(1024)
-        if not data:
+        try:
+            # Read the fixed-length header
+            data = await reader.readexactly(10)
+            message_size = int(data.decode('utf-8').strip())
+
+            # Read the message
+            data = await reader.readexactly(message_size)
+        except asyncio.IncompleteReadError as e:
+            print(f"imcomplete read error: {str(e)}")
             break
-        print("Received from server:")
-        print(json.loads(data.decode('utf-8')))
+        message = data.decode('utf-8')
+
+        try:
+            print(json.loads(message))
+        except json.decoder.JSONDecodeError:
+            print("JSON decode error")
 
 def user_input(writer):
     while True:
