@@ -152,7 +152,7 @@ def is_ant_infected(ant, tribe):
 
 async def update_game_state(player, action):
     async with mutex:
-        print(f"Received command: {action}")
+        # print(f"Received command: {action} from player {player.player_id}")
         action=action.split()
         if action[0] == "create_tribe":
             if player.new_tribes_to_create > 0:
@@ -161,17 +161,16 @@ async def update_game_state(player, action):
                 asyncio.create_task(send_notification(player, msg= "choose_position", x=ant_position.x, y= ant_position.y))
         elif action[0]=="choose_position":
             if len(action)<3:
-                await send_warning(player, msg="argument insufficient")
+                await send_warning(player, msg="argument_insufficient")
                 return True
             try:
                 x, y = int(action[1]), int(action[2])
             except ValueError:
                 return True
             choose_position(player, x, y)
-            print(f"Created a new tribe for player {player.player_id}({player.name})")
         elif action[0]=="init":
             if len(action)<2:
-                await send_warning(player, msg="argument insufficient")
+                await send_warning(player, msg="argument_insufficient")
                 return True
             player.name = action[1]
             print(f"Player {player.player_id} has set his name to {player.name}")
@@ -186,7 +185,7 @@ def choose_position(player, x, y):
         # Create a new tribe with the chosen position and recorded ant positions
         pos=Position(x,y)
         if not in_field(pos):
-            asyncio.create_task(send_warning(msg=f"{pos.toTuple()} out of bound"))
+            asyncio.create_task(send_warning(player, msg=f"position_out_of_bound"))
             return
 
         new_tribe = Tribe(player.player_id, tribe_id=player.tribe_count, position=pos)
@@ -197,6 +196,10 @@ def choose_position(player, x, y):
 
         # invasion
         new_tribe.perform_invasion()
+
+        print(f"Created a new tribe for player {player.player_id}({player.name})")
+    else:
+        asyncio.create_task(send_warning(player, msg="tribe_creation_not_available"))
 
 
 
@@ -212,14 +215,14 @@ async def handle_client(reader, writer):
 
     try:
         while True:
-            print("try to read...")
+            # print("try to read...")
             message = await reader.read(1024)
             if not message:
                 print(f"Player {player_id} disconnected.")
                 break
 
             message = message.decode('utf-8')
-            print(f"Received {message} from player {player.player_id}({player.name})")
+            print(f"Received from player {player.player_id}({player.name}): {message}")
 
             ret = await update_game_state(player, message)
             if not ret:
@@ -315,7 +318,7 @@ async def generate_ants():
             async with mutex:
                 ants.append(new_ant)
                 ants_count+=1
-            print(f"An ant generated at position ({ant_position.x}, {ant_position.y})")
+            # print(f"An ant generated at position ({ant_position.x}, {ant_position.y})")
             await send_game_state_all(backup=True)
         await asyncio.sleep(ANT_GENERATION_INTERVAL)
 
