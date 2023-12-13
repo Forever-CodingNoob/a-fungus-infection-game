@@ -4,6 +4,7 @@ import random
 import math
 import json
 from collections import deque
+import sys
 
 # Constants
 MAX_ANT_MOVEMENT = 1
@@ -380,6 +381,10 @@ async def main(bind_ip='127.0.0.1', bind_port=8763):
         await server.serve_forever()
 
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python server.py <ip> <port>")
+        exit(0)
+    server_ip, server_port = sys.argv[1], int(sys.argv[2])
     loop = asyncio.get_event_loop()
-    server_task = loop.create_task(main(), name='Server')
+    server_task = loop.create_task(main(bind_ip=server_ip, bind_port=server_port), name='Server')
     loop.run_forever()
