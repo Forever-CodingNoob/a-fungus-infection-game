@@ -1,3 +1,4 @@
+#!/bin/env python3
 import asyncio
 import socket
 import random
@@ -8,12 +9,12 @@ import sys
 
 # Constants
 MAX_ANT_MOVEMENT = 1
-MAP_WIDTH = 500
-MAP_HEIGHT = 300
+MAP_WIDTH = 100
+MAP_HEIGHT = 50
 BASE_DEF = 10
 BASE_ATK = 5
 BASE_INFECTION_RATE = 0.1
-BASE_RADIUS = 20
+BASE_RADIUS = 5
 ANT_GENERATION_INTERVAL = 3  # Interval in seconds
 ANT_MOVEMENT_INTERVAL = 1  # Interval in seconds
 UPDATE_INTERVAL = 20
@@ -69,10 +70,10 @@ class Tribe:
         return (self.player_id == other.player_id) and (self.tribe_id == other.tribe_id)
 
     def check_dead(self):
-        if self.DEF<=0 or (self.position not in self.infection_area):
+        if self.DEF<=0 or (self.position.toTuple() not in self.infection_area):
             del players[self.player_id].tribes[self.tribe_id]
             print(f"Tribe {self.tribe_id} of player {self.player_id} is now dead")
-            asyncio.create_task(send_notification(player, msg="tribe_dead", tid=self.tribe_id))
+            asyncio.create_task(send_notification(players[self.player_id], msg="tribe_dead", tid=self.tribe_id))
             # killed
 
     async def update_values(self):
@@ -81,14 +82,12 @@ class Tribe:
             self.DEF -= 1
             self.check_dead()
 
-    def is_position_in_infection_area(self, x, y):
-        return (x, y) in self.infection_area
-
     def perform_invasion(self):
-        for some_player in players.values():
-            for other_tribe in some_player.tribes.values():
-                if other_tribe==self:
+        for some_player_id in list(players.keys()):
+            for other_tribe_id in list(players[some_player_id].tribes.keys()):
+                if some_player_id==self.player_id and other_tribe_id==self.tribe_id:
                     continue
+                other_tribe = players[some_player_id].tribes[other_tribe_id]
                 inter = self.infection_area.intersection(other_tribe.infection_area)
                 if not inter:
                     continue
@@ -158,7 +157,10 @@ async def update_game_state(player, action):
         if action[0] == "create_tribe":
             if player.new_tribes_to_create > 0:
                 # Store the position where the ant was infected in the queue
-                ant_position = player.ant_positions.popleft();
+                if player.ant_positions:
+                    ant_position = player.ant_positions[0]
+                else:
+                    ant_position = Position(0,0)
                 asyncio.create_task(send_notification(player, msg= "choose_position", x=ant_position.x, y= ant_position.y))
         elif action[0]=="choose_position":
             if len(action)<3:
@@ -184,6 +186,8 @@ async def update_game_state(player, action):
 def choose_position(player, x, y):
     if player.new_tribes_to_create > 0:
         # Create a new tribe with the chosen position and recorded ant positions
+        if player.ant_positions:
+            player.ant_positions.popleft()
         pos=Position(x,y)
         if not in_field(pos):
             asyncio.create_task(send_warning(player, msg=f"position_out_of_bound"))
@@ -199,6 +203,7 @@ def choose_position(player, x, y):
         new_tribe.perform_invasion()
 
         print(f"Created a new tribe for player {player.player_id}({player.name})")
+        asyncio.create_task(send_notification(player, msg=f"tribe_creation_succeeded"))
     else:
         asyncio.create_task(send_warning(player, msg="tribe_creation_not_available"))
 
@@ -236,7 +241,10 @@ async def handle_client(reader, writer):
     finally:
         del players[player_id]
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except Exception as e:
+            print(str(e))
 
     # finally:
         # writer.close()
