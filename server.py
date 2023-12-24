@@ -11,13 +11,13 @@ import sys
 MAX_ANT_MOVEMENT = 1
 MAP_WIDTH = 100
 MAP_HEIGHT = 50
-BASE_DEF = 10
-BASE_ATK = 5
+BASE_DEF = 30
+BASE_ATK = 20
 BASE_INFECTION_RATE = 0.1
 BASE_RADIUS = 5
 ANT_GENERATION_INTERVAL = 3  # Interval in seconds
 ANT_MOVEMENT_INTERVAL = 1  # Interval in seconds
-UPDATE_INTERVAL = 20
+UPDATE_INTERVAL = 1
 ANT_MAX_N = 50
 
 class Ant:
@@ -49,11 +49,12 @@ class Tribe:
         self.player_id = player_id
         self.tribe_id = tribe_id
         self.DEF = BASE_DEF
-        self.ATK = BASE_ATK
+        self.ATK = players[player_id].ATK
         self.infection_probability = BASE_INFECTION_RATE
         self.radius = BASE_RADIUS
         self.position = position
         self.infection_area = set()
+        self.dead=False
         # self.health = random.randint(50, 100)
         #self.positions = positions  # Queue to store positions of infected ants
 
@@ -71,16 +72,24 @@ class Tribe:
 
     def check_dead(self):
         if self.DEF<=0 or (self.position.toTuple() not in self.infection_area):
-            del players[self.player_id].tribes[self.tribe_id]
-            print(f"Tribe {self.tribe_id} of player {self.player_id} is now dead")
-            asyncio.create_task(send_notification(players[self.player_id], msg="tribe_dead", tid=self.tribe_id))
-            # killed
+            self.dead=True
+            player_id=self.player_id
+            tribe_id=self.tribe_id
+            del players[player_id].tribes[tribe_id]
+            print(f"Tribe {tribe_id} of player {player_id} is now dead")
+            asyncio.create_task(send_notification(players[player_id], msg="tribe_dead", tid=tribe_id))
+            if (not players[player_id].dead) and (not players[player_id].tribes) and players[player_id].new_tribes_to_create==0:
+                # player lose
+                print(f"Player {player_id} lost")
+                asyncio.create_task(send_notification(players[player_id], msg="lost"))
+                players[player_id].dead=True
 
-    async def update_values(self):
-        async with mutex:
-            # Simulate the decrease of values over time
-            self.DEF -= 1
-            self.check_dead()
+
+
+    def update_values(self):
+        # Simulate the decrease of values over time
+        self.DEF -= 1
+        self.check_dead()
 
     def perform_invasion(self):
         for some_player_id in list(players.keys()):
@@ -91,14 +100,19 @@ class Tribe:
                 inter = self.infection_area.intersection(other_tribe.infection_area)
                 if not inter:
                     continue
-                if self.ATK>other_tribe.DEF:
+                invasion_success = self.ATK>other_tribe.DEF
+                if some_player_id!=self.player_id:
+                    other_tribe.DEF-=int(self.ATK*len(inter)/len(other_tribe.infection_area))
+                if invasion_success:
                     other_tribe.infection_area.difference_update(inter)
                     other_tribe.check_dead()
-                    print(f"Tribe of player {self.player_id} invades tribe of player {other_tribe.player_id} successfully")
+                    print(f"Tribe {self.tribe_id} of player {self.player_id} invades tribe {other_tribe_id} of player {other_tribe.player_id} successfully")
                 else:
                     self.infection_area.difference_update(inter)
                     self.check_dead()
-                    print(f"Tribe of player {self.player_id} failed to invade tribe of player {other_tribe.player_id}")
+                    print(f"Tribe {self.tribe_id} of player {self.player_id} (ATK: {self.ATK}) failed to invade tribe {other_tribe_id} of player {other_tribe.player_id} (DEF: {other_tribe.DEF})")
+                    if self.dead:
+                        return
 
 
 # Player class with a queue to store positions and the number of tribes to create
@@ -108,10 +122,12 @@ class Player:
         self.reader = reader
         self.writer = writer
         self.name = "anonymous"
+        self.ATK = BASE_ATK
         self.tribes = {}
         self.tribe_count=0 # does NOT decrease when a tribe dies
         self.ant_positions = deque()  # Queue to store positions of infected ants
         self.new_tribes_to_create = 1
+        self.dead=False
 
 # Global variables
 players = {}
@@ -154,6 +170,11 @@ async def update_game_state(player, action):
     async with mutex:
         # print(f"Received command: {action} from player {player.player_id}")
         action=action.split()
+
+        if action[0] == 'exit':
+            return False
+        if player.dead:
+            return True
         if action[0] == "create_tribe":
             if player.new_tribes_to_create > 0:
                 # Store the position where the ant was infected in the queue
@@ -177,8 +198,6 @@ async def update_game_state(player, action):
                 return True
             player.name = action[1]
             print(f"Player {player.player_id} has set his name to {player.name}")
-        elif action[0] == 'exit':
-            return False
         else:
             print(f"Command {action} not found")
     return True
@@ -225,6 +244,8 @@ async def handle_client(reader, writer):
             message = await reader.read(1024)
             if not message:
                 print(f"Player {player_id} disconnected.")
+                break
+            if player.dead:
                 break
 
             message = message.decode('utf-8')
@@ -310,9 +331,9 @@ async def gen_game_data(backup=False):
 async def update_tribe_values():
     while True:
         async with mutex:
-            for player in players.values():
-                for tribe in player.tribes.value():
-                    tribe.update_values()
+            for player_id in list(players.keys()):
+                for tribe_id in list(players[player_id].tribes.keys()):
+                    players[player_id].tribes[tribe_id].update_values()
 
         await asyncio.sleep(UPDATE_INTERVAL)
 
@@ -350,6 +371,7 @@ async def move_ants():
                             # Record the position where the ant was infected
                             player.ant_positions.append(ant.position)
                             player.new_tribes_to_create += 1
+                            ants.remove(ant)
                             ants_count-=1
                             print(f"An ant infected at position ({ant.position.x}, {ant.position.y})")
                             asyncio.create_task(send_notification(player, msg="ant_infected"))

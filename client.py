@@ -10,13 +10,17 @@ import random
 
 term = Terminal()
 CELL_WIDTH = 2
-BG_COLOR = term.on_color_rgb(0,0,0)
+BG_COLOR = term.on_color_rgb(0,0,0) + term.white
 META_COLOR = term.black_on_seagreen3
 ANT_SYMB = "🐜"
+ANT_SYMB2 = "O"
 ANT_SYMB_WIDTH = 2
+ANT_SYMB2_WIDTH = 1
 exit_event = threading.Event()  # Event to signal exit
+dead_event = threading.Event()  # Event to signal player's death
 game_map = {}  # Dictionary to store the game map state
 game_map_output = {}
+ant=list()
 map_size = {"height": 0, "width": 0}
 new_tribes_to_create = 0
 current_player_id = -1
@@ -77,25 +81,35 @@ async def read_server(reader):
         try:
             # print(json.loads(message))
             game_data = json.loads(message)
-            if game_data['type']=="data":
-                update_terminal(game_data)
-            elif game_data['type']=="notification" and game_data["msg"]=="choose_position":
-                hide_cursor()
-                cursor=(game_data['x'], game_data['y'])
-                choose_position_mode=True
-                show_cursor()
-            elif game_data['type']=='notification' and game_data['msg']=='tribe_creation_succeeded':
-                hide_cursor()
-                choose_position_mode=False
-
         except json.decoder.JSONDecodeError:
             print("JSON decode error")
+            continue
+
+        if game_data['type']=="data":
+            update_terminal(game_data)
+        elif game_data['type']=="notification" and game_data["msg"]=="choose_position":
+            hide_cursor()
+            cursor=(game_data['x'], game_data['y'])
+            choose_position_mode=True
+            show_cursor()
+        elif game_data['type']=='notification' and game_data['msg']=='tribe_creation_succeeded':
+            hide_cursor()
+            choose_position_mode=False
+        elif game_data['type']=='notification' and game_data['msg']=='lost':
+            print(f"{BG_COLOR}You lost (Press any key to continue...)")
+            dead_event.set()
+
+
 
 def user_input(writer):
     global choose_position_mode
     val = ''
-    while True:
+    while not exit_event.is_set():
         val = term.inkey()
+        if dead_event.is_set():
+            asyncio.run(send_message(writer, f"exit"))
+            exit_event.set()
+            break
         if val.is_sequence:
             if val.code==343:
                 (x,y)=cursor
@@ -118,7 +132,6 @@ def user_input(writer):
             elif val==' ' and new_tribes_to_create>0:
                 asyncio.run(send_message(writer, "create_tribe"))
 
-
     print(f'{BG_COLOR}bye!{term.normal}')
 
 def remove_tribe(player_id, tribe_id):
@@ -131,7 +144,7 @@ def remove_tribe(player_id, tribe_id):
 
 
 def update_terminal(new_game_data):
-    global game_map, game_map_output, map_size, current_player_id, init, new_tribes_to_create, current_player_name
+    global game_map, game_map_output, map_size, current_player_id, init, new_tribes_to_create, current_player_name, ant
     drawn_grids = set()
 
     # Extract relevant data from new_game_data
@@ -203,8 +216,18 @@ def update_terminal(new_game_data):
                     (x,y)=old_position
                     game_map_output[y][x]=(PlayerColor.BGCOLOR, " "*CELL_WIDTH)
                 (x,y)=new_tribe_position
-                game_map_output[y][x]=(game_map[player_id]['color'], ANT_SYMB.ljust(CELL_WIDTH-ANT_SYMB_WIDTH+1))
+                game_map_output[y][x]=(game_map[player_id]['color'], ANT_SYMB.center(CELL_WIDTH-ANT_SYMB_WIDTH+1))
                 game_map[player_id]['tribes'][tribe_id]["position"] = new_tribe_position
+
+    for x,y in ant:
+        if ANT_SYMB2 in game_map_output[y][x][1]:
+            game_map_output[y][x]=(game_map_output[y][x][0]," "*CELL_WIDTH)
+    ant=list()
+    for x,y in new_game_data["ants"]:
+        x,y=int(x), int(y)
+        ant.append((x,y))
+        if game_map_output[y][x][1]==" "*CELL_WIDTH:
+            game_map_output[y][x]=(game_map_output[y][x][0],ANT_SYMB2.center(CELL_WIDTH-ANT_SYMB2_WIDTH+1))
 
     upd_screen()
     upd_metadata()
