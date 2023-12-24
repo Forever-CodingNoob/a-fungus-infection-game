@@ -10,14 +10,14 @@ import random
 
 term = Terminal()
 CELL_WIDTH = 2
-BG_COLOR = term.on_color_rgb(0,0,0) + term.white
+BG_COLOR = term.normal + term.white
 META_COLOR = term.black_on_seagreen3
 ANT_SYMB = "🐜"
 ANT_SYMB2 = "O"
 ANT_SYMB_WIDTH = 2
 ANT_SYMB2_WIDTH = 1
 exit_event = threading.Event()  # Event to signal exit
-dead_event = threading.Event()  # Event to signal player's death
+end = False
 game_map = {}  # Dictionary to store the game map state
 game_map_output = {}
 ant=list()
@@ -25,9 +25,13 @@ map_size = {"height": 0, "width": 0}
 new_tribes_to_create = 0
 current_player_id = -1
 current_player_name = ""
+input_player_name = ""
 cursor = (0,0)
 init = False
 choose_position_mode = False
+show_input_name_popup = False
+mutex = asyncio.Lock()
+
 
 
 class PlayerColor:
@@ -50,7 +54,7 @@ class PlayerColor:
     def getPlayerColor(player_id):
         color = random.choice(PlayerColor.COLORS)
         PlayerColor.COLORS.remove(color)
-        return term.on_color_rgb(*color)
+        return color
     @staticmethod
     def returnColor(color):
         PlayerColor.COLORS.append(color)
@@ -61,7 +65,7 @@ async def send_message(writer, message):
     await writer.drain()
 
 async def read_server(reader):
-    global cursor, choose_position_mode
+    global cursor, choose_position_mode, end
     while not exit_event.is_set():
         try:
             # Read the fixed-length header
@@ -86,7 +90,7 @@ async def read_server(reader):
             continue
 
         if game_data['type']=="data":
-            update_terminal(game_data)
+            await update_terminal(game_data)
         elif game_data['type']=="notification" and game_data["msg"]=="choose_position":
             hide_cursor()
             cursor=(game_data['x'], game_data['y'])
@@ -96,8 +100,10 @@ async def read_server(reader):
             hide_cursor()
             choose_position_mode=False
         elif game_data['type']=='notification' and game_data['msg']=='lost':
-            print(f"{BG_COLOR}You lost (Press any key to continue...)")
-            dead_event.set()
+            #print(f"{BG_COLOR}You lost (Press any key to continue...)")
+            choose_position_mode=False
+            end=True
+            hide_cursor()
 
 
 
@@ -106,7 +112,7 @@ def user_input(writer):
     val = ''
     while not exit_event.is_set():
         val = term.inkey()
-        if dead_event.is_set():
+        if end:
             asyncio.run(send_message(writer, f"exit"))
             exit_event.set()
             break
@@ -143,15 +149,15 @@ def remove_tribe(player_id, tribe_id):
 
 
 
-def update_terminal(new_game_data):
+async def update_terminal(new_game_data):
     global game_map, game_map_output, map_size, current_player_id, init, new_tribes_to_create, current_player_name, ant
     drawn_grids = set()
+    current_player_id = str(new_game_data["player_id"])
+    current_player_name = new_game_data["players"][current_player_id]["name"]
 
     # Extract relevant data from new_game_data
     if not init:
         init=True
-        current_player_id = str(new_game_data["player_id"])
-        current_player_name = new_game_data["players"][current_player_id]["name"]
         map_size["height"]=int(new_game_data["map_size"]["height"])
         map_size["width"]=int(new_game_data["map_size"]["width"])
         game_map_output=[
@@ -197,8 +203,13 @@ def update_terminal(new_game_data):
             if tribe_id not in game_map[player_id]["tribes"]:
                 game_map[player_id]["tribes"][tribe_id] = {
                     "position": tuple(),
-                    "zone": set()
+                    "zone": set(),
+                    "ATK": -1,
+                    "DEF": -1
                 }
+
+            game_map[player_id]["tribes"][tribe_id]["ATK"]=int(tribe_data["ATK"])
+            game_map[player_id]["tribes"][tribe_id]["DEF"]=int(tribe_data["DEF"])
 
             old_tribe_zone = game_map[player_id]["tribes"][tribe_id]["zone"]
             old_position = game_map[player_id]['tribes'][tribe_id]["position"]
@@ -207,7 +218,7 @@ def update_terminal(new_game_data):
             for x,y in old_tribe_zone.difference(new_tribe_zone).difference(drawn_grids):
                 game_map_output[y][x]=(PlayerColor.BGCOLOR, " "*CELL_WIDTH)
             for x,y in (diff:=new_tribe_zone.difference(old_tribe_zone)):
-                game_map_output[y][x]=(game_map[player_id]['color'], " "*CELL_WIDTH)
+                game_map_output[y][x]=(term.on_color_rgb(*game_map[player_id]['color']), " "*CELL_WIDTH)
             drawn_grids.update(diff)
             game_map[player_id]['tribes'][tribe_id]['zone'] = new_tribe_zone
 
@@ -216,7 +227,7 @@ def update_terminal(new_game_data):
                     (x,y)=old_position
                     game_map_output[y][x]=(PlayerColor.BGCOLOR, " "*CELL_WIDTH)
                 (x,y)=new_tribe_position
-                game_map_output[y][x]=(game_map[player_id]['color'], ANT_SYMB.center(CELL_WIDTH-ANT_SYMB_WIDTH+1))
+                game_map_output[y][x]=(term.on_color_rgb(*game_map[player_id]['color']), ANT_SYMB.center(CELL_WIDTH-ANT_SYMB_WIDTH+1))
                 game_map[player_id]['tribes'][tribe_id]["position"] = new_tribe_position
 
     for x,y in ant:
@@ -235,6 +246,14 @@ def update_terminal(new_game_data):
     # show cursor
     show_cursor()
 
+    if end:
+        term_size = term.height, term.width
+        with term.location(0, term_size[0] // 2 - 1):
+            print(term.black_on_red+"You lost".center(term_size[1]))
+            print(term.black_on_red+"(Press any key to quit)".center(term_size[1]))
+    if show_input_name_popup:
+        await draw_popup()
+
 
 def upd_screen():
     print(
@@ -245,11 +264,47 @@ def upd_screen():
 
 def upd_metadata():
     with term.location(0, map_size["height"]):
+        PLAYER_INFO = f"Player: {current_player_name} ({current_player_id})"
+        PLAYER_INFO_WIDTH = len(PLAYER_INFO) + 5
+        (R,G,B)=game_map[current_player_id]["color"]
+        PLAYER_INFO_COLOR = term.on_color_rgb(R,G,B) + (term.color_rgb(255,255,255) if R+G+B<340 else term.black)
         print(
-            META_COLOR+(f"Player: {current_player_name} ({current_player_id}) | # new tribes available: {new_tribes_to_create}").ljust(map_size["width"]*CELL_WIDTH),
+            PLAYER_INFO_COLOR + PLAYER_INFO.ljust(PLAYER_INFO_WIDTH)+META_COLOR + f"# new tribes available: {new_tribes_to_create}".rjust(map_size["width"]*CELL_WIDTH-PLAYER_INFO_WIDTH),
             end="",
             flush=True
         )
+
+    i=1
+    with term.location(0, map_size["height"]+i):
+        print(
+            BG_COLOR+ term.clear_eos,
+            end="",
+            flush=True
+        )
+    for tribe_id, tribe in game_map[current_player_id]["tribes"].items():
+        TRIBE_INFO_WIDTH = 8
+        TRIBE_INFO_TITLE_WIDTH = TRIBE_INFO_WIDTH + 5
+        with term.location(0, map_size["height"]+i):
+            print(
+                META_COLOR+(f"Tribe {tribe_id}:").ljust(TRIBE_INFO_TITLE_WIDTH),
+                end="",
+                flush=True
+            )
+        with term.location(TRIBE_INFO_TITLE_WIDTH, map_size["height"]+i):
+            print(
+                META_COLOR+(f"ATK {tribe['ATK']}").ljust(TRIBE_INFO_WIDTH),
+                end="",
+                flush=True
+            )
+        with term.location(TRIBE_INFO_WIDTH+TRIBE_INFO_TITLE_WIDTH, map_size["height"]+i):
+            print(
+                META_COLOR+(f"DEF {tribe['DEF']}").ljust(TRIBE_INFO_WIDTH),
+                end="",
+                flush=True
+            )
+        i+=1
+
+
 
 def move_cursor(dx, dy):
     global cursor
@@ -273,7 +328,36 @@ def hide_cursor():
 
 
 
+async def draw_popup():
+    async with mutex:
+        with term.location(0, term.height // 2 - 2):
+            color = term.black_on_blue
+            print(color + term.bold("Enter Your Name:".center(term.width)))
+            print(color + input_player_name.ljust(20, "_").center(term.width))
+            print(color + "Press Enter when done.".center(term.width))
+
+def get_user_name():
+    global input_player_name
+
+    while True:
+        key = term.inkey()
+        if key.is_sequence and key.code == term.KEY_ENTER:
+            break
+        elif key.is_sequence and key.code == term.KEY_DELETE:
+            input_player_name = input_player_name[:-1]
+        elif key.is_sequence and key.code == term.KEY_BACKSPACE:
+            input_player_name = input_player_name[:-1]
+        else:
+            input_player_name += key
+        color = term.black_on_blue
+
+        asyncio.run(draw_popup())
+
+
 async def main():
+    global show_input_name_popup
+    show_input_name_popup=True
+
     print(term.home + BG_COLOR + term.clear)
 
     server_ip, server_port = sys.argv[1], int(sys.argv[2])
@@ -281,8 +365,20 @@ async def main():
 
     #user_input_thread = threading.Thread(target=user_input, args=(writer,))
     #user_input_thread.start()
-    user_input_task = asyncio.to_thread(user_input, writer)
     read_server_task = asyncio.create_task(read_server(reader))
+
+    user_name_input_task = asyncio.to_thread(get_user_name)
+    try:
+        await asyncio.gather(user_name_input_task)
+    except asyncio.CancelledError:
+        pass
+    show_input_name_popup=False
+    print(term.home + BG_COLOR + term.clear)
+
+    await send_message(writer, f"init {input_player_name}")
+
+
+    user_input_task = asyncio.to_thread(user_input, writer)
 
     try:
         #await read_server(reader)

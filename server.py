@@ -11,13 +11,13 @@ import sys
 MAX_ANT_MOVEMENT = 1
 MAP_WIDTH = 100
 MAP_HEIGHT = 50
-BASE_DEF = 30
-BASE_ATK = 20
+BASE_DEF = 60
+BASE_ATK = 40
 BASE_INFECTION_RATE = 0.1
 BASE_RADIUS = 5
 ANT_GENERATION_INTERVAL = 3  # Interval in seconds
-ANT_MOVEMENT_INTERVAL = 1  # Interval in seconds
-UPDATE_INTERVAL = 1
+ANT_MOVEMENT_INTERVAL = 0.5  # Interval in seconds
+UPDATE_INTERVAL = 0.5
 ANT_MAX_N = 50
 
 class Ant:
@@ -292,7 +292,7 @@ async def send_game_state(player=None, backup=False):
         try:
             await send_message_withheader(player_i.writer, json_obj)
         except socket.error as e:
-            print(f"Error sending game state to Player {player.player_id}: {e}")
+            print(f"Error sending game state to Player {player_i.player_id}: {e}")
 
 async def gen_game_data(backup=False):
     async with mutex:
