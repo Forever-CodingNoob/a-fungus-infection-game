@@ -1,3 +1,4 @@
+#!/bin/env python3
 import asyncio
 import threading
 import json
