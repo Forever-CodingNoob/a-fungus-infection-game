@@ -1,4 +1,7 @@
 # An unnamed fungus infection game
+
+[![hackmd-github-sync-badge](https://hackmd.io/UA6qYTipSo2UOPVNs9QtFA/badge)](https://hackmd.io/UA6qYTipSo2UOPVNs9QtFA)
+
 ## Introduction & Rules
 This is a game about Ophiocordyceps unilateralis, aka zombie-ant fungus, infecting ants.  The game never stops (and so does the server) so that players can join the game as long as the server does not terminate unexpectedly. 
 The field (aka map) of the game consists of 500x300 grids. The size of field may be altered by the server owner (aka game host) before the game starts.
@@ -21,19 +24,28 @@ Note that the DEF, ATK, and infection probability of the infection zone of each 
 
 When an ant is infected a subspecies of zombie-ant fungus  when passing by an infection zone of one of its tribes at some position (aka grid),  the corresponding player that owns the subspecies can then decide to control where the infected ant should take "the death bite" and then create a new tribe of the subspecies owned by the player. In particular, the player is responsible for choosing a position (aka grid) on the field to create a tribe, and then the server will create a tribe for the player, where the tribe has DEF=Base-DEF, ATK=Base-ATK, infection probability = base infection probability, and the newly created tribe will create its infection zone immediately, during which invasion might take place.
 
-## Run the game server (NO installation required)
-1. Get `server.py` in your Linux environment with [Python3](https://www.python.org/downloads/) installed:
-    + from Github repo (here!)
-    + from [workstation](https://www.csie.ntu.edu.tw/~b11902015/bio-game/server.py)
+## Run a game server (NO installation required)
+1. Make sure [Python3](https://www.python.org/downloads/) is installed in your environment. (Using Linux as the environment is strongly preferred!)
+1. Get `server.py` in your directory. You can choose to download it from either:
+    + Github repo (here!)
+    + or [workstation](https://www.csie.ntu.edu.tw/~b11902015/bio-game/server.py)
 2. Acquire execution permission: `chmod u+x <path_to_client.py>`
 3. Run `server.py` directly: `<path_to_server.py> <bind_ip> <bind_port>`
-    + e.g. `./server.py 0.0.0.0 48763`
+    + e.g. `./server.py 0.0.0.0 48763` 
 
-## Run the game client (NO installation required)
-1. Get `client.py` in your Linux environment with [Python3](https://www.python.org/downloads/) installed:
+## Run a game client (NO installation required)
+1. Make sure [Python3](https://www.python.org/downloads/), along with [blessed](https://pypi.org/project/blessed/), is installed in your environment. (Using Linux as the environment is strongly preferred!)
+1. Get `client.py` in your directory. You can choose to download it from either:
     + from Github repo (here!)
     + from [workstation](https://www.csie.ntu.edu.tw/~b11902015/bio-game/client.py)
 2. Acquire execution permission: `chmod u+x <path_to_client.py>`
-3. Run `client.py`: `python <path_to_client.py> <server_ip_or_domainname> <server_port>` 
-    + e.g. `python client.py ws2.csie.ntu.edu.tw 48763`
+3. Run `client.py`: `<path_to_client.py> <server_ip_or_domainname> <server_port>` 
+    + e.g. `./client.py ws2.csie.ntu.edu.tw 48763` (supposing the server is run on `ws2.csie.ntu.edu.tw:48763`.)
+
+## How to play the game
++ Press `SPACE` to start deciding where to create a new tribe.
+    + Now you can use the arrow keys to move the red block used to mark your desired location for the new tribe.
+    + Press `ENTER` to confirm the location for the new tribe.
++ Press `q` to leave the game.
++ A player lose the game iff he does not own any tribe and has run out of chances to create a new tribe.
 
